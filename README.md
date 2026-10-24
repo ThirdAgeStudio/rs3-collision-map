@@ -80,4 +80,4 @@ The scripts for all of this are in [`tools/`](tools/), and [`tools/README.md`](t
 
 ## Using this with AI tools
 
-You have my permission to use this repo's code, tools and documentation with AI tools, including uploading them to AI models, as far as Jagex's [AI policy](https://developer.runescape.com/rs/submission/guidelines.html) is concerned. The collision data in `data/` is built from the game's cache, so it's Jagex's and not mine to give permission for.
+You have my permission to use this repo's code, tools and documentation with AI tools, including uploading them to AI models, as far as Jagex's [AI policy](https://developer.runescape.com/rs/submission/guidelines.html#ai-policy) is concerned. The collision data in `data/` is built from the game's cache, so it's Jagex's and not mine to give permission for.
