@@ -5,5 +5,5 @@
 -- keyed by the NPC's current config ID: for a multi-NPC that's the form showing, not its parent
 return {
     [22083] = "Large Jellyfish, underwater at 5192, 771",
-    [31110] = "Icthlarin",
+    [31110] = "Icthlarin, Sanctum of Rebirth",
 }
