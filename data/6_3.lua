@@ -1,0 +1,1 @@
+return {[6]={"","BggE","",""},[7]={"","BggE","",""},[10]={"","BggE","",""},[11]={"","B_hCABB_BABB_BABB_BABB_BABB_BABB_BABB_BABB_BABB_BABB_BABB_BABB_BABB_BABBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgBBgBAgB","",""},[14]={"BggE","","",""},[15]={"BggE","BggE","BggE","BggE"}}

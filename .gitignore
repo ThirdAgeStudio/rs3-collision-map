@@ -1,0 +1,5 @@
+# kept locally, not pushed
+tests/
+# release zips
+*.zip
+dist/
