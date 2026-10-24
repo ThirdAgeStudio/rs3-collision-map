@@ -24,12 +24,14 @@ These aren't in the cache, some of these need to be done in your own plugin:
 
 ## Setup
 
-1. Drop this folder in `RuneScape-BETA/dev_plugins/collision-map/`.
+1. Download the zip from [Releases](../../releases) and unzip it into `RuneScape-BETA/dev_plugins/`, so you end up with `dev_plugins/collision-map/`. (Cloning the repo there works too, it just brings the build tools along.)
 2. Add it to your plugin's `plugin.json`. Name it whatever you want, the key is the variable you'll use:
 
    ```json
-   "optionalDependencies": { "CollisionMap": "collision-map" }
+   "requiredDependencies": { "CollisionMap": "collision-map" }
    ```
+
+   Use `optionalDependencies` instead if your plugin still works without it, and check `if CollisionMap then` before using it.
 
 3. Run `prf` and `pon collision-map` before turning your plugin on.
 
