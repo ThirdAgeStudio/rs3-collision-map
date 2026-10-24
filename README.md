@@ -6,6 +6,8 @@ It's a library, so players won't use it directly. It started out as part of my P
 
 ![Map squares with collision data, north up: green is the overworld, blue the underground band, lighter squares have upper floors](media/coverage.png)
 
+*Every map square with collision data (4,916 of them, each 64×64 tiles), north up. Green is the overworld, blue is the underground band the game keeps far to the north (dungeons, caves), and lighter squares also have upper floors. Dark means there's no map there at all.*
+
 ## Getting help
 
 If you find a spot where it's wrong, open an issue (or a PR) with the tile coordinates, or message me on Discord: @wandernaut
