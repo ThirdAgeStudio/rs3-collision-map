@@ -1,0 +1,57 @@
+--- a/src/definitions/location_configs.rs
++++ b/src/definitions/location_configs.rs
+@@ -183,6 +183,20 @@
+     pub params: Option<ParamTable>,
+ }
+ 
++fn skip_wide_morph_table(buffer: &mut Bytes, has_default: bool) -> Result<(), ReadError> {
++    buffer.try_get_u8()?;
++    buffer.try_get_u16()?;
++    buffer.try_get_u16()?;
++    if has_default {
++        buffer.try_get_smart32()?;
++    }
++    let count = buffer.try_get_unsigned_smart()? as usize;
++    for _ in 0..=count {
++        buffer.try_get_smart32()?;
++    }
++    Ok(())
++}
++
+ impl LocationConfig {
+     /// Returns a mapping of all [location configurations](LocationConfig)
+     #[cfg(any(feature = "rs3", feature = "2008_3_shim"))]
+@@ -430,7 +444,19 @@
+ 
+                         loc.unknown_204 = Some(out)
+                     }
+-                    205 => loc.model_morphs = Some(ModelMorphs::deserialize(&mut buffer)?),
++                    205 => loc.model_morphs = Some(ModelMorphs::deserialize(&mut buffer, false)?),
++                    // Newer opcodes: 108-111 are flags with no data, 206 is length-prefixed data,
++                    // and 207-209 are the morph tables of 77, 92 and 205 with a 3-byte varbit
++                    108..=111 => {}
++                    206 => {
++                        let length = buffer.try_get_u16()? as usize;
++                        buffer.advance(length);
++                    }
++                    207 => skip_wide_morph_table(&mut buffer, false)?,
++                    208 => skip_wide_morph_table(&mut buffer, true)?,
++                    209 => {
++                        ModelMorphs::deserialize(&mut buffer, true)?;
++                    }
+                     249 => loc.params = Some(ParamTable::deserialize(&mut buffer)),
+                     opcode => {
+                         println!("{loc}");
+@@ -957,8 +983,11 @@
+     }
+ 
+     impl ModelMorphs {
+-        pub fn deserialize(buffer: &mut Bytes) -> Result<Self, ReadError> {
++        pub fn deserialize(buffer: &mut Bytes, wide_varbit: bool) -> Result<Self, ReadError> {
+             let unk0 = buffer.try_get_u16()?;
++            if wide_varbit {
++                buffer.try_get_u8()?;
++            }
+ 
+             let varbit = Varbit::new(buffer.try_get_u16()?);
+             let varp = Varp::new(buffer.try_get_u16()?);

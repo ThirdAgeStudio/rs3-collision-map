@@ -3,3 +3,8 @@ tests/
 # release zips
 *.zip
 dist/
+
+# python
+__pycache__/
+
+!AGENTS.md

@@ -74,4 +74,8 @@ Shipping data from Jagex's cache in a plugin hasn't been cleared with Jagex yet,
 4. **Encode it.** Each tile becomes 5 bits (blocked, plus a wall on each side). The 4,096 tiles of a square's level are written in order as runs of identical tiles, as text in a 64-letter alphabet, so it can sit in a Lua file.
 5. **Group it.** 4×4 squares go in each file, `data/<gx>_<gz>.lua`, because zipping one file per square came out at twice the size.
 
-The build scripts for steps 3 to 5 live in my plugins workspace for now, not in this repo.
+The scripts for all of this are in [`tools/`](tools/), and [`tools/README.md`](tools/README.md) has the exact commands to rebuild the data yourself.
+
+## Using this with AI tools
+
+You have my permission to use this repo's code, tools and documentation with AI tools, including uploading them to AI models, as far as Jagex's [AI policy](https://developer.runescape.com/rs/submission/guidelines.html) is concerned. The collision data in `data/` is built from the game's cache, so it's Jagex's and not mine to give permission for.
