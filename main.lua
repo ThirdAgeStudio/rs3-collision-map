@@ -8,13 +8,16 @@
 -- one data file per group of 4x4 map squares, data/<gx>_<gz>.lua (gx = sx // 4), returning a table
 -- keyed by (sx % 4) * 4 + sz % 4, each entry four strings (levels 0-3): grouped because a zip pays
 -- per file, so one file per square doubled the download
+-- a square with wall corners that change movement has four more strings (levels 0-3 again) for them
 -- each string run-length encodes the square's 4,096 tiles, x-major with z fastest: a character
 -- for the tile's collision bits, then the run length as a varint (5 bits a character, 32 = more
 -- follows), in the 64-letter alphabet below (tools/collision/encode.py writes it)
 -- bits: 1 blocked, 2 north wall, 4 east, 8 south, 16 west
+-- a corner string holds a tile's corners shifted down by 5, so it fits the same alphabet: 32 NW,
+-- 64 NE, 128 SE and 256 SW once shifted back
 -- the files hold the whole map, so a group is only read, and a level decoded, the first time
 -- it's asked for; a square missing from its group has no collision (open ground, or nothing there)
-local FORMAT = 1
+local FORMAT = 2
 local NPCS = require("npcs")
 local ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
@@ -26,7 +29,7 @@ local decoded = {}
 local MISSING = {}
 
 -- turns one level's run string into the flat x, z, bits list of its non-zero tiles
-local function decode(text, sx, sz)
+local function decode(text, sx, sz, valueShift)
     local out, n = {}, 0
     local pos, index, length = 1, 0, #text
     local x0, z0 = sx * 64, sz * 64
@@ -42,7 +45,7 @@ local function decode(text, sx, sz)
         until c < 32
         if value ~= 0 then
             for k = index, index + run - 1 do
-                out[n + 1], out[n + 2], out[n + 3] = x0 + k // 64, z0 + k % 64, value
+                out[n + 1], out[n + 2], out[n + 3] = x0 + k // 64, z0 + k % 64, value << valueShift
                 n = n + 3
             end
         end
@@ -65,6 +68,25 @@ local function file(sx, sz)
     return data[(sx % GROUP) * GROUP + sz % GROUP]
 end
 
+local CORNER_SHIFT = 5
+
+-- ORs a second x, z, bits list into the first: a tile with corners usually has no walls, so most
+-- corners are new entries
+local function merge(list, extra)
+    local at = {}
+    for i = 1, #list - 2, 3 do at[list[i] * 65536 + list[i + 1]] = i end
+    for i = 1, #extra - 2, 3 do
+        local key = extra[i] * 65536 + extra[i + 1]
+        local existing = at[key]
+        if existing ~= nil then
+            list[existing + 2] = list[existing + 2] | extra[i + 2]
+        else
+            list[#list + 1], list[#list + 2], list[#list + 3] = extra[i], extra[i + 1], extra[i + 2]
+        end
+    end
+    return list
+end
+
 -- the flat x, z, bits list for one level of one map square, or nil when it has no collision
 -- callers must not change the list: it's shared with every other caller
 local function square(level, sx, sz)
@@ -73,7 +95,10 @@ local function square(level, sx, sz)
     if list == nil then
         local data = file(sx, sz)
         local text = data and data[level + 1]
-        list = (type(text) == "string" and text ~= "") and decode(text, sx, sz) or MISSING
+        list = (type(text) == "string" and text ~= "") and decode(text, sx, sz, 0) or {}
+        local corners = data and data[level + 5]
+        if type(corners) == "string" and corners ~= "" then list = merge(list, decode(corners, sx, sz, CORNER_SHIFT)) end
+        if #list == 0 then list = MISSING end
         decoded[key] = list
     end
     if list == MISSING then return nil end
@@ -87,8 +112,11 @@ local tiles = {}
 local BLOCKED = 1
 local SIDE = { N = 2, E = 4, S = 8, W = 16 }
 local OPPOSITE = { [SIDE.N] = SIDE.S, [SIDE.S] = SIDE.N, [SIDE.E] = SIDE.W, [SIDE.W] = SIDE.E }
+local CORNER = { NW = 32, NE = 64, SE = 128, SW = 256 }
+local OPPOSITE_CORNER = { [CORNER.NW] = CORNER.SE, [CORNER.SE] = CORNER.NW, [CORNER.NE] = CORNER.SW, [CORNER.SW] = CORNER.NE }
 
--- a tile's collision bits (1 blocked, 2 north wall, 4 east, 8 south, 16 west), 0 when it has none
+-- a tile's collision bits (1 blocked, 2 north wall, 4 east, 8 south, 16 west, then corners 32 NW,
+-- 64 NE, 128 SE, 256 SW), 0 when it has none
 local function bits(level, x, z)
     local sx, sz = x >> 6, z >> 6
     local key = level .. "_" .. sx .. "_" .. sz
@@ -127,14 +155,23 @@ local function orthogonal(level, x, z, dx, dz)
     return bits(level, x, z) & side == 0 and bits(level, x + dx, z + dz) & (OPPOSITE[side] | BLOCKED) == 0
 end
 
+local function cornerOf(dx, dz)
+    if dz == 1 then return dx == 1 and CORNER.NE or CORNER.NW end
+    return dx == 1 and CORNER.SE or CORNER.SW
+end
+
 -- whether one step from x, z by dx, dz (each -1, 0 or 1) is open, by the client's rule: a straight
 -- step needs no wall on the edge crossed and an unblocked tile to land on; a diagonal step needs
 -- both straight steps round its corner open, so it never cuts past a blocked tile or a wall
+-- a corner piece (a post or pillar) also stops a diagonal through its corner, though its tile
+-- can be stood on; it's stored on one of the two tiles the diagonal joins, so both are checked
 local function canMove(level, x, z, dx, dz)
     if dx == 0 and dz == 0 then return true end
     if dx == 0 or dz == 0 then return orthogonal(level, x, z, dx, dz) end
+    local corner = cornerOf(dx, dz)
     return orthogonal(level, x, z, dx, 0) and orthogonal(level, x, z, 0, dz)
         and orthogonal(level, x + dx, z, 0, dz) and orthogonal(level, x, z + dz, dx, 0)
+        and bits(level, x, z) & corner == 0 and bits(level, x + dx, z + dz) & OPPOSITE_CORNER[corner] == 0
 end
 
 -- whether an NPC blocks the player's steps, by its current config ID (npcs.lua)
@@ -153,4 +190,5 @@ return {
     blocksNpc = blocksNpc,
     BLOCKED = BLOCKED,
     SIDE = SIDE,
+    CORNER = CORNER,
 }

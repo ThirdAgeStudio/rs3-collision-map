@@ -17,6 +17,13 @@ DIAGONAL_WALL = 9
 CENTREPIECES = {10, 11}
 GROUND_DECORATION = 22
 FOOTPRINT_SHAPES = {DIAGONAL_WALL, GROUND_DECORATION, *CENTREPIECES}
+CORNER_SHAPES = {1, 3}
+
+NORTH_WEST, NORTH_EAST, SOUTH_EAST, SOUTH_WEST = 32, 64, 128, 256
+CORNER_BY_ROTATION = {0: NORTH_WEST, 1: NORTH_EAST, 2: SOUTH_EAST, 3: SOUTH_WEST}
+DIAGONAL_BY_CORNER = {NORTH_WEST: (-1, 1), NORTH_EAST: (1, 1), SOUTH_EAST: (1, -1), SOUTH_WEST: (-1, -1)}
+SIDE_TOWARDS = {(1, 0): EAST, (-1, 0): WEST, (0, 1): NORTH, (0, -1): SOUTH}
+OPPOSITE_SIDE = {EAST: WEST, WEST: EAST, NORTH: SOUTH, SOUTH: NORTH}
 
 TILE_BLOCKED_SETTING = 0x1
 BRIDGE_SETTING = 0x2
@@ -27,12 +34,14 @@ NEIGHBOURS_REACHING_IN = ((-1, 0), (0, -1), (-1, -1))
 CLIP_TYPE_0_FLAG = "unknown_17"
 CLIP_TYPE_1_FLAG = "unknown_27"
 DEFAULT_CLIP_TYPE = 2
+DOOR_ACTIONS = {"Open", "Close"}
 
 
 class ObjectConfig(NamedTuple):
     width: int
     length: int
     clip_type: int
+    is_door: bool
 
 
 class PlacedObject(NamedTuple):
@@ -57,6 +66,10 @@ def clip_type(config):
     return DEFAULT_CLIP_TYPE
 
 
+def is_door(config):
+    return any(action in DOOR_ACTIONS for action in config.get("actions") or [])
+
+
 def read_json(path):
     with open(path) as file:
         return json.load(file)
@@ -70,10 +83,12 @@ class MapDump:
     def __init__(self, folder):
         self.folder = Path(folder)
         self.configs = {
-            config["id"]: ObjectConfig(config.get("dim_x") or 1, config.get("dim_y") or 1, clip_type(config))
+            config["id"]: ObjectConfig(config.get("dim_x") or 1, config.get("dim_y") or 1, clip_type(config), is_door(config))
             for config in read_json(self.folder / "location_configs.json")
         }
         self.square = lru_cache(maxsize=32)(self.load_square)
+        self.collision = lru_cache(maxsize=64)(lambda square_x, square_z: collide_square(self, square_x, square_z))
+        self.door_sides = lru_cache(maxsize=64)(lambda square_x, square_z: door_sides(self, square_x, square_z))
 
     def load_square(self, square_x, square_z):
         name = f"{square_x}_{square_z}.json"
@@ -106,6 +121,15 @@ def blocks_walking(placed, config):
     return config.clip_type != 0
 
 
+def wall_sides(placed):
+    if placed.shape == STRAIGHT_WALL:
+        return WALL_SIDE_BY_ROTATION[placed.rotation]
+    if placed.shape in L_WALLS:
+        side = WALL_SIDE_BY_ROTATION[placed.rotation]
+        return side | NEXT_SIDE_CLOCKWISE[side]
+    return 0
+
+
 def collide_square(dump, square_x, square_z):
     origin_x, origin_z = square_x * SQUARE_SIZE, square_z * SQUARE_SIZE
     collision = {}
@@ -119,11 +143,8 @@ def collide_square(dump, square_x, square_z):
         config = dump.configs[placed.config_id]
         if placed.level < 0 or not blocks_walking(placed, config):
             return
-        if placed.shape == STRAIGHT_WALL:
-            add(placed.level, placed.x, placed.z, WALL_SIDE_BY_ROTATION[placed.rotation])
-        elif placed.shape in L_WALLS:
-            side = WALL_SIDE_BY_ROTATION[placed.rotation]
-            add(placed.level, placed.x, placed.z, side | NEXT_SIDE_CLOCKWISE[side])
+        if wall_sides(placed):
+            add(placed.level, placed.x, placed.z, wall_sides(placed))
         elif placed.shape in FOOTPRINT_SHAPES:
             width, length = footprint(placed, config)
             for dx in range(width):
@@ -149,3 +170,56 @@ def collide_square(dump, square_x, square_z):
                 add_object(placed)
 
     return collision
+
+
+def door_sides(dump, square_x, square_z):
+    sides = {}
+    for placed in dump.square(square_x, square_z).objects:
+        if placed.level >= 0 and dump.configs[placed.config_id].is_door and wall_sides(placed):
+            key = (placed.level, placed.x, placed.z)
+            sides[key] = sides.get(key, 0) | wall_sides(placed)
+    return sides
+
+
+def collision_bits(dump, level, x, z, doors_open):
+    square_x, square_z = x // SQUARE_SIZE, z // SQUARE_SIZE
+    bits = dump.collision(square_x, square_z).get(level, {}).get((x, z), 0)
+    if doors_open:
+        bits &= ~dump.door_sides(square_x, square_z).get((level, x, z), 0)
+    return bits
+
+
+def straight_step_open(dump, level, x, z, dx, dz, doors_open):
+    side = SIDE_TOWARDS[(dx, dz)]
+    return (collision_bits(dump, level, x, z, doors_open) & side == 0
+            and collision_bits(dump, level, x + dx, z + dz, doors_open) & (OPPOSITE_SIDE[side] | BLOCKED) == 0)
+
+
+def diagonal_step_open(dump, level, x, z, dx, dz, doors_open):
+    return (straight_step_open(dump, level, x, z, dx, 0, doors_open)
+            and straight_step_open(dump, level, x, z, 0, dz, doors_open)
+            and straight_step_open(dump, level, x + dx, z, 0, dz, doors_open)
+            and straight_step_open(dump, level, x, z + dz, dx, 0, doors_open))
+
+
+def corner_matters(dump, level, x, z, corner):
+    dx, dz = DIAGONAL_BY_CORNER[corner]
+    return any(
+        diagonal_step_open(dump, level, x, z, dx, dz, doors_open)
+        or diagonal_step_open(dump, level, x + dx, z + dz, -dx, -dz, doors_open)
+        for doors_open in (False, True)
+    )
+
+
+def square_corners(dump, square_x, square_z):
+    corners = {}
+    for placed in dump.square(square_x, square_z).objects:
+        if placed.shape not in CORNER_SHAPES or placed.level < 0:
+            continue
+        if not blocks_walking(placed, dump.configs[placed.config_id]):
+            continue
+        corner = CORNER_BY_ROTATION[placed.rotation]
+        if corner_matters(dump, placed.level, placed.x, placed.z, corner):
+            tiles = corners.setdefault(placed.level, {})
+            tiles[(placed.x, placed.z)] = tiles.get((placed.x, placed.z), 0) | corner
+    return corners
