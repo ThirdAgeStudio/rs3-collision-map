@@ -24,7 +24,7 @@ Use `stepOpen` with your own tile lookup (see "Using it") so the movement rule s
 
 ## Known issues
 
-- **Instances [WIP]** (boss rooms, heists, POH). An instance is a copy of a map area at different coordinates, so looking up an instance's own coordinates finds nothing. Mapping instance tiles back to where they came from (`World.GetRegionSourceForCoordGrid`) still needs to be done.
+- **Instances: a few edge cases.** Instances work: each instance tile is mapped back to the tile it was copied from (`World.GetRegionSourceForCoordGrid`), including rooms the game copied in turned, which Collision Map works out from how neighbouring zones line up. Tested in a variety of places including most bosses, daemonheim, heists (all floors). If your plugin sees region changes before Collision Map does, call `map.clearRegion()`.
 - **The NPC list is short [WIP].** It only has two so far, so if you find an NPC you can't walk through, send me its ID or open a PR.
 
 ## Setup
@@ -53,6 +53,7 @@ map.bits(level, x, z)                     -- the raw bits: 1 blocked, 2 north wa
                                           -- then corners: 32 NW, 64 NE, 128 SE, 256 SW
 map.square(level, squareX, squareZ)       -- a whole 64x64 map square as a flat x, z, bits list, or nil
 map.blocksNpc(configID)                   -- true if this NPC blocks the player (by its current config ID)
+map.clearRegion()                         -- forget the current instance's mapping (also done on region events)
 ```
 
 - Coordinates are world tiles (`CoordGrid.x`, `.z`, `.level`).

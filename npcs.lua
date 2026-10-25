@@ -6,4 +6,6 @@
 return {
     [22083] = "Large Jellyfish, underwater at 5192, 771",
     [31110] = "Icthlarin, Sanctum of Rebirth",
+    [31098] = "Vermyx, Brood Mother, Sanctum of Rebirth hard mode",
+    [31099] = "Coilspawn, Sanctum of Rebirth hard mode",
 }
