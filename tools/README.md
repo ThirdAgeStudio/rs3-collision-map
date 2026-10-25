@@ -56,6 +56,8 @@ return {[6]={"BBEBA-_D","","",""}}
 
 A level with no collision is an empty string. A square with no collision at all is left out, and a group with none gets no file.
 
+A square with wall corners that change movement has four more strings after those, one per level again, holding just the corners. They use the same format with the corner bits shifted down by 5 (so 1 NW, 2 NE, 4 SE, 8 SW), and the plugin shifts them back to 32, 64, 128 and 256. Only about 240 squares have them, so most entries still have four strings.
+
 Each string is the level's 4,096 tiles in order (x outer, z inner: index `x * 64 + z` within the square), stored as runs of identical tiles:
 
 1. **One character for the tile's value**, its collision bits from 0 to 31: 1 blocked, 2 north wall, 4 east, 8 south, 16 west. The characters are the 64-letter [base64url](https://www.rfc-editor.org/rfc/rfc4648#section-5) alphabet, `A` = 0 up to `_` = 63, so the strings sit in plain Lua quotes.

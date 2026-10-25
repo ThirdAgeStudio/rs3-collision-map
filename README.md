@@ -12,15 +12,20 @@ It's a library, so players won't use it directly. It started out as part of my P
 
 If you find a spot where it's wrong, open an issue (or a PR) with the tile coordinates, or message me on Discord: @wandernaut
 
-## Known issues
+## What your plugin adds
 
-These aren't in the cache, some of these need to be done in your own plugin:
+Collision Map is the map as the cache stores it, plus the rule for moving over it. Anything live is up to your plugin, since it depends on what's happening in game right now:
 
 - **Doors and gates as they are right now.** The cache only stores each door one way, and whether it's open is live state. Grab door objects from `LocList` and let them override the wall on their tile.
-- **Objects the server spawns,** like the chests and safes in heists. `LocList` reports them.
+- **Objects the server spawns,** like the chests and safes in heists. `LocList` reports them too.
+- **NPCs that block you.** They move around, so they can't go in a static map. Instead there's a hand-written list in `npcs.lua`, like the OSRS Path Marker's [`npc_blocking.txt`](https://github.com/GeChallengeM/path-marker/blob/HEAD/src/main/resources/com/pathmarker/npc_blocking.txt): check the NPCs around you from `NPCList` with `blocksNpc` each tick. The game's route ignores them at first: you walk up to one, and when the next step would land on it, the game routes again from there with its tile blocked. So search once without them, stop the walk in front of one, then search again from there with their tiles blocked.
+
+Use `stepOpen` with your own tile lookup (see "Using it") so the movement rule stays the same as Collision Map's once you've added these.
+
+## Known issues
+
 - **Instances [WIP]** (boss rooms, heists, POH). An instance is a copy of a map area at different coordinates, so looking up an instance's own coordinates finds nothing. Mapping instance tiles back to where they came from (`World.GetRegionSourceForCoordGrid`) still needs to be done.
-- **NPCs [WIP]** Some NPCs block movement, but they move around, so they can't go in a static map. Instead there's a hand-written list in `npcs.lua`, like the OSRS Path Marker's [`npc_blocking.txt`](https://github.com/GeChallengeM/path-marker/blob/HEAD/src/main/resources/com/pathmarker/npc_blocking.txt). It only has two so far (the Large Jellyfish underwater at 5192, 771, and Icthlarin), so if you find an NPC you can't walk through, send me its ID. Check the NPCs around you from `NPCList` with `blocksNpc` each tick. The game's route ignores them at first: you walk up to one, and when the next step would land on it, the game routes again from there with its tile blocked. So search once without them, stop the walk in front of one, then search again from there with their tiles blocked.
-- **Wall corners [WIP].** These are in the cache but skipped for now. A corner piece (a pillar or post where walls meet) stops you stepping diagonally past that corner of its tile, even though you can walk onto the tile itself, like the washing line in east Varrock at 3239, 3420. Almost all corners sit where walls already block that diagonal, so only a few hundred across the map make a difference. I'm going to add back just those, as a small list per map square, so tiles stay at 5 bits.
+- **The NPC list is short [WIP].** It only has two so far, so if you find an NPC you can't walk through, send me its ID or open a PR.
 
 ## Setup
 
@@ -40,16 +45,21 @@ These aren't in the cache, some of these need to be done in your own plugin:
 ```lua
 local map = CollisionMap
 
-map.blocked(level, x, z)                -- true if no one can stand on this tile
-map.wall(level, x, z, "N")              -- true if a wall stands on that side of the tile ("N", "E", "S", "W")
-map.canMove(level, x, z, dx, dz)        -- can you step from x, z by dx, dz (each -1, 0 or 1)?
-map.bits(level, x, z)                   -- the raw bits: 1 blocked, 2 north wall, 4 east, 8 south, 16 west
-map.square(level, squareX, squareZ)     -- a whole 64x64 map square as a flat x, z, bits list, or nil
-map.blocksNpc(configID)                 -- true if this NPC blocks the player (by its current config ID)
+map.blocked(level, x, z)                  -- true if no one can stand on this tile
+map.wall(level, x, z, "N")                -- true if a wall stands on that side of the tile ("N", "E", "S", "W")
+map.canMove(level, x, z, dx, dz)          -- can you step from x, z by dx, dz (each -1, 0 or 1)?
+map.stepOpen(bitsAt, level, x, z, dx, dz) -- the same rule, reading tiles through your own bitsAt(level, x, z)
+map.bits(level, x, z)                     -- the raw bits: 1 blocked, 2 north wall, 4 east, 8 south, 16 west,
+                                          -- then corners: 32 NW, 64 NE, 128 SE, 256 SW
+map.square(level, squareX, squareZ)       -- a whole 64x64 map square as a flat x, z, bits list, or nil
+map.blocksNpc(configID)                   -- true if this NPC blocks the player (by its current config ID)
 ```
 
 - Coordinates are world tiles (`CoordGrid.x`, `.z`, `.level`).
 - `canMove` uses the client's rule: a diagonal step needs both straight steps around its corner to be open, so it never cuts past a blocked tile or a wall. A wall is only stored on one tile, so `wall` reports it from that tile, but `canMove` checks both sides of the edge.
+- A corner piece (a post or pillar) stops a diagonal step through its corner, though you can stand on its tile. `canMove` checks those too.
+- `stepOpen` is for when your plugin adds its own live state: pass a function that returns the bits for a tile with your doors or NPCs mixed in, and it applies the same rule. For example `map.stepOpen(function(level, x, z) return map.bits(level, x, z) | myDoorBits(level, x, z) end, level, x, z, dx, dz)`.
+- **If you're pathfinding,** `canMove` and `bits` are fine for a few checks, but a search can try tens of thousands of steps. It's quicker to copy the area you're searching into your own table once (`square` gives you a whole map square at a time), then call `stepOpen` with a `bitsAt` that reads your table. Path Marker does this: a full 128×128 search over real collision around the GE takes about 11.2 ms with `stepOpen`, against 9.5 ms with the rule copied inline into its own code, so about 18% slower for keeping one copy of the rule.
 - Data for an area loads the first time you ask about it, a few KB at a time, and stays loaded. The lists `square` returns are shared, so don't modify them.
 
 ## The data
@@ -72,7 +82,8 @@ Shipping data from Jagex's cache in a plugin hasn't been cleared with Jagex yet,
    - ground decoration (grass tufts, paving) only blocks at clip type 1, so the usual 2s stay walkable
    - multi-locs use their placed parent object, not the state the API reports, because the state follows each player's own variables
    - big objects from a neighbouring square that reach into this one count too
-   - wall corners (for now), wall decorations and roofs are skipped
+   - a corner piece only counts where it changes movement: almost all of them sit where walls already block the diagonal, so only about 1,750 across the map are kept
+   - wall decorations and roofs are skipped
 4. **Encode it.** Each tile becomes 5 bits (blocked, plus a wall on each side). The 4,096 tiles of a square's level are written in order as runs of identical tiles, as text in a 64-letter alphabet, so it can sit in a Lua file.
 5. **Group it.** 4×4 squares go in each file, `data/<gx>_<gz>.lua`, because zipping one file per square came out at twice the size.
 
