@@ -150,9 +150,9 @@ local function sideOf(dx, dz)
     elseif dz == 1 then return SIDE.N else return SIDE.S end
 end
 
-local function orthogonal(level, x, z, dx, dz)
+local function orthogonal(bitsAt, level, x, z, dx, dz)
     local side = sideOf(dx, dz)
-    return bits(level, x, z) & side == 0 and bits(level, x + dx, z + dz) & (OPPOSITE[side] | BLOCKED) == 0
+    return bitsAt(level, x, z) & side == 0 and bitsAt(level, x + dx, z + dz) & (OPPOSITE[side] | BLOCKED) == 0
 end
 
 local function cornerOf(dx, dz)
@@ -160,18 +160,29 @@ local function cornerOf(dx, dz)
     return dx == 1 and CORNER.SE or CORNER.SW
 end
 
--- whether one step from x, z by dx, dz (each -1, 0 or 1) is open, by the client's rule: a straight
--- step needs no wall on the edge crossed and an unblocked tile to land on; a diagonal step needs
--- both straight steps round its corner open, so it never cuts past a blocked tile or a wall
--- a corner piece (a post or pillar) also stops a diagonal through its corner, though its tile
--- can be stood on; it's stored on one of the two tiles the diagonal joins, so both are checked
-local function canMove(level, x, z, dx, dz)
+-- whether one step from x, z by dx, dz (each -1, 0 or 1) is open, by the client's rule, reading
+-- tiles through bitsAt(level, x, z), so a plugin can pass its own view with live doors or NPCs
+-- mixed in; the bits must follow this format, walls stored on one tile and corners on one of the
+-- two tiles a diagonal joins, which is why both sides are checked
+
+-- performance: every check reads up to 6 tiles through bitsAt, and canMove's bits() builds a string
+-- key per read; fine for occasional checks, but a search trying thousands of steps is faster
+-- with the tiles copied into its own array and bitsAt reading that (as Path Marker does)
+-- a straight step needs no wall on the edge crossed and an unblocked tile to land on; a diagonal
+-- step needs both straight steps round its corner open, so it never cuts past a blocked tile or a
+-- wall, and no corner piece (a post or pillar) in the corner it passes through
+local function stepOpen(bitsAt, level, x, z, dx, dz)
     if dx == 0 and dz == 0 then return true end
-    if dx == 0 or dz == 0 then return orthogonal(level, x, z, dx, dz) end
+    if dx == 0 or dz == 0 then return orthogonal(bitsAt, level, x, z, dx, dz) end
     local corner = cornerOf(dx, dz)
-    return orthogonal(level, x, z, dx, 0) and orthogonal(level, x, z, 0, dz)
-        and orthogonal(level, x + dx, z, 0, dz) and orthogonal(level, x, z + dz, dx, 0)
-        and bits(level, x, z) & corner == 0 and bits(level, x + dx, z + dz) & OPPOSITE_CORNER[corner] == 0
+    return orthogonal(bitsAt, level, x, z, dx, 0) and orthogonal(bitsAt, level, x, z, 0, dz)
+        and orthogonal(bitsAt, level, x + dx, z, 0, dz) and orthogonal(bitsAt, level, x, z + dz, dx, 0)
+        and bitsAt(level, x, z) & corner == 0 and bitsAt(level, x + dx, z + dz) & OPPOSITE_CORNER[corner] == 0
+end
+
+-- the same rule on the static map alone
+local function canMove(level, x, z, dx, dz)
+    return stepOpen(bits, level, x, z, dx, dz)
 end
 
 -- whether an NPC blocks the player's steps, by its current config ID (npcs.lua)
@@ -187,6 +198,7 @@ return {
     blocked = blocked,
     wall = wall,
     canMove = canMove,
+    stepOpen = stepOpen,
     blocksNpc = blocksNpc,
     BLOCKED = BLOCKED,
     SIDE = SIDE,
