@@ -19,8 +19,9 @@ def start_worker(dump_folder):
 
 def encode_square(square):
     square_x, square_z = square
-    collision = build.collide_square(worker_dump, square_x, square_z)
-    return square, encode.square_strings(square_x, square_z, collision)
+    walls = worker_dump.collision(square_x, square_z)
+    corners = build.square_corners(worker_dump, square_x, square_z)
+    return square, encode.square_strings(square_x, square_z, walls, corners)
 
 
 def parse_arguments():

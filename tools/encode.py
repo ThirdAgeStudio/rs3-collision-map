@@ -6,6 +6,7 @@ TILES_PER_LEVEL = SQUARE_SIZE * SQUARE_SIZE
 LEVELS = 4
 GROUP_SIZE = 4
 MAX_TILE_VALUE = 31
+CORNER_SHIFT = 5
 RUN_CHUNK_BITS = 5
 RUN_CHUNK_MASK = (1 << RUN_CHUNK_BITS) - 1
 MORE_CHUNKS_FOLLOW = 1 << RUN_CHUNK_BITS
@@ -54,16 +55,24 @@ def decode_level(text):
     return values or [0] * TILES_PER_LEVEL
 
 
-def square_strings(square_x, square_z, levels):
-    strings = []
-    for level in range(LEVELS):
-        values = [0] * TILES_PER_LEVEL
-        for (x, z), bits in levels.get(level, {}).items():
-            if bits > MAX_TILE_VALUE:
-                raise ValueError(f"tile {x},{z} level {level} has bits {bits}, more than the format holds")
-            values[(x - square_x * SQUARE_SIZE) * SQUARE_SIZE + (z - square_z * SQUARE_SIZE)] = bits
-        strings.append(encode_level(values))
-    return strings if any(strings) else None
+def level_values(square_x, square_z, tiles, shift):
+    values = [0] * TILES_PER_LEVEL
+    for (x, z), bits in tiles.items():
+        value = bits >> shift
+        if value << shift != bits or value > MAX_TILE_VALUE:
+            raise ValueError(f"tile {x},{z} has bits {bits}, which the format can't hold")
+        values[(x - square_x * SQUARE_SIZE) * SQUARE_SIZE + (z - square_z * SQUARE_SIZE)] = value
+    return values
+
+
+def square_strings(square_x, square_z, walls, corners=None):
+    corners = corners or {}
+    wall_strings = [encode_level(level_values(square_x, square_z, walls.get(level, {}), 0)) for level in range(LEVELS)]
+    corner_strings = [encode_level(level_values(square_x, square_z, corners.get(level, {}), CORNER_SHIFT))
+                      for level in range(LEVELS)]
+    if not any(wall_strings) and not any(corner_strings):
+        return None
+    return wall_strings + corner_strings if any(corner_strings) else wall_strings
 
 
 def group_key(square_x, square_z):
